@@ -82,7 +82,7 @@ async def cmd_backup(c, m: Message):
         await m.reply_text(f"<pre>{s}</pre>")
 
 
-# ---------- Admin: Attach flow ----------
+# ---------- Admin: Attach flow (No auto-post) ----------
 @app.on_message(filters.user(ADMIN_ID) & filters.command("attach") & filters.reply)
 async def attach_handler(c, m: Message):
     """
@@ -132,7 +132,7 @@ async def attach_handler(c, m: Message):
             await m.reply_text("❌ No links found in replied message. Make sure the original post contains URLs.")
             return
 
-        # prepare formatted links block (for attractive DM / post)
+        # prepare formatted links block (for DM)
         links_block = format_links_block(link_lines)
 
         # create and save movie record in MongoDB
@@ -144,29 +144,12 @@ async def attach_handler(c, m: Message):
         }
         save_movie(code, movie_data)
 
-        # compose attractive comment for channel post
-        comment = make_attractive_comment(code, raw_title, links_block, demo_video or "")
-
-        # Post only to your channel
-        CHANNEL_ID = os.getenv("CHANNEL_ID")
-        sent = await c.send_message(CHANNEL_ID, comment, disable_web_page_preview=True)
-
-        # schedule deletion of bot comment after 10 mins
-        asyncio.create_task(schedule_delete(c, sent.chat.id, sent.message_id))
-
-        await m.reply_text(f"✅ Saved & posted. Code: {code}")
+        # reply to admin confirming save
+        await m.reply_text(f"✅ Movie saved successfully.\nCode: {code}\nSubscribers can now DM the bot with this code to get links.")
 
     except Exception as e:
         await m.reply_text(f"❌ Error: {e}")
 
-
-# ----------------- Delete Task -----------------
-async def schedule_delete(client, chat_id, msg_id):
-    await asyncio.sleep(int(os.getenv("DELETE_TIME", 600)))  # default 10 minutes
-    try:
-        await client.delete_messages(chat_id, msg_id)
-    except Exception:
-        pass
 
 
 # ---------- User DM handler ----------
