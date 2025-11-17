@@ -124,7 +124,8 @@ async def attach_handler(c, m: Message):
             if url_in_line:
                 url = url_in_line.group(1).strip()
                 label = line[:url_in_line.start()].strip() or "Download"
-                short = short_it(url)  # shorten via XTG API
+                # shorten via XTG API
+                short = short_it(url)
                 link_lines.append((label, short))
 
         if not link_lines:
@@ -143,14 +144,14 @@ async def attach_handler(c, m: Message):
         }
         save_movie(code, movie_data)
 
-        # compose attractive comment
+        # compose attractive comment for channel post
         comment = make_attractive_comment(code, raw_title, links_block, demo_video or "")
 
-        # Always post to your channel safely
+        # Post only to your channel
         CHANNEL_ID = os.getenv("CHANNEL_ID")
         sent = await c.send_message(CHANNEL_ID, comment, disable_web_page_preview=True)
 
-        # schedule deletion of bot comment
+        # schedule deletion of bot comment after 10 mins
         asyncio.create_task(schedule_delete(c, sent.chat.id, sent.message_id))
 
         await m.reply_text(f"✅ Saved & posted. Code: {code}")
@@ -159,12 +160,14 @@ async def attach_handler(c, m: Message):
         await m.reply_text(f"❌ Error: {e}")
 
 
+# ----------------- Delete Task -----------------
 async def schedule_delete(client, chat_id, msg_id):
     await asyncio.sleep(int(os.getenv("DELETE_TIME", 600)))  # default 10 minutes
     try:
         await client.delete_messages(chat_id, msg_id)
     except Exception:
         pass
+
 
 # ---------- User DM handler ----------
 @app.on_message(filters.private & filters.text)
