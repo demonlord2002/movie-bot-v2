@@ -86,20 +86,18 @@ async def cmd_backup(c, m: Message):
 @app.on_message(filters.user(ADMIN_ID) & filters.command("attach") & filters.reply)
 async def attach_handler(c, m: Message):
     """
-    Admin replies to a raw post (which contains title + link lines).
-    Usage (reply to original post and send):
+    Admin replies to a raw post (title + links) and sends:
     /attach [optional demo_link]
-    Example:
-    /attach https://t.me/How_To_Downloadee/20
+    Example: /attach https://t.me/How_To_Downloadee/20
     """
     try:
-        # generate code
+        # generate auto code
         code = generate_auto_code()
 
-        # original message (the one admin replied to)
+        # original message (admin replied to)
         orig: Message = m.reply_to_message
         if not orig:
-            await m.reply_text("Reply to the original post which contains links/text.")
+            await m.reply_text("❌ Reply to the original post which contains links/text.")
             return
 
         # try to find demo link from command args or inside orig msg
@@ -108,42 +106,35 @@ async def attach_handler(c, m: Message):
         if len(parts) > 1 and parts[1].strip().startswith("http"):
             demo_video = parts[1].strip()
         else:
-            # search for t.me link in orig message
+            # search for t.me link in original message
             found = URL_REGEX.findall(orig.text or "")
             for u in found:
                 if "t.me" in u or "telegram.me" in u:
                     demo_video = u
                     break
 
-        # extract title (use first line of orig text as internal reference)
+        # extract title (first line of original text)
         raw_title = (orig.text or "").splitlines()[0][:150] if orig.text else "Unknown"
 
         # extract all URLs from original message
         found_urls = URL_REGEX.findall(orig.text or "")
-        # Build link lines with label heuristics: try to capture the preceding label (like "600MB - 480p")
-        # We'll parse by lines: each line might have label + url
         link_lines = []
         for line in (orig.text or "").splitlines():
             url_in_line = URL_REGEX.search(line)
             if url_in_line:
                 url = url_in_line.group(1).strip()
-                # label: take text before url in same line
-                label = line[:url_in_line.start()].strip()
-                if not label:
-                    # fallback label from url (last path)
-                    label = "Download"
-                # shorten url
-                short = short_it(url)
+                label = line[:url_in_line.start()].strip() or "Download"
+                short = short_it(url)  # shorten via XTG API
                 link_lines.append((label, short))
 
         if not link_lines:
-            await m.reply_text("No links found in replied message. Make sure the original post contains URLs.")
+            await m.reply_text("❌ No links found in replied message. Make sure the original post contains URLs.")
             return
 
-        # prepare short_links block (html)
+        # prepare formatted links block (for attractive DM / post)
         links_block = format_links_block(link_lines)
 
-        # create and save movie record
+        # create and save movie record in MongoDB
         movie_data = {
             "code": code,
             "raw_title": raw_title,
@@ -155,19 +146,11 @@ async def attach_handler(c, m: Message):
         # compose attractive comment
         comment = make_attractive_comment(code, raw_title, links_block, demo_video or "")
 
-        # reply to original message in channel (bot will post the attractive comment)
-        # If orig.chat is the channel, reply in that chat. If admin forwarded from elsewhere, post to CHANNEL_ID instead.
-        try:
-            if str(orig.chat.id) == str(os.getenv("CHANNEL_ID")) or (hasattr(orig.chat, "username") and ("@" + (orig.chat.username or "")) == os.getenv("CHANNEL_ID")):
-                sent = await orig.reply_text(comment, disable_web_page_preview=True)
-            else:
-                # admin forwarded or posted outside channel: post to CHANNEL_ID
-                sent = await c.send_message(os.getenv("CHANNEL_ID"), comment, disable_web_page_preview=True)
-        except Exception:
-            # fallback: post to CHANNEL_ID
-            sent = await c.send_message(os.getenv("CHANNEL_ID"), comment, disable_web_page_preview=True)
+        # Always post to your channel safely
+        CHANNEL_ID = os.getenv("CHANNEL_ID")
+        sent = await c.send_message(CHANNEL_ID, comment, disable_web_page_preview=True)
 
-        # schedule deletion of the bot-created comment
+        # schedule deletion of bot comment
         asyncio.create_task(schedule_delete(c, sent.chat.id, sent.message_id))
 
         await m.reply_text(f"✅ Saved & posted. Code: {code}")
@@ -177,12 +160,11 @@ async def attach_handler(c, m: Message):
 
 
 async def schedule_delete(client, chat_id, msg_id):
-    await asyncio.sleep(DELETE_TIME)
+    await asyncio.sleep(int(os.getenv("DELETE_TIME", 600)))  # default 10 minutes
     try:
         await client.delete_messages(chat_id, msg_id)
     except Exception:
         pass
-
 
 # ---------- User DM handler ----------
 @app.on_message(filters.private & filters.text)
